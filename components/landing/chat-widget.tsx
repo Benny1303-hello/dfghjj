@@ -21,20 +21,38 @@ const initialMessages: Message[] = [
   { from: "bot", text: "Chào bạn! Mình là trợ lý ảo của DuHoc24, bạn cần hỗ trợ gì về hồ sơ du học?" },
 ];
 
+const STORAGE_KEY = "duhoc24_chat_conversation_id";
+
 export function ChatWidget() {
   const [open, setOpen] = React.useState(false);
   const [messages, setMessages] = React.useState<Message[]>(initialMessages);
   const [input, setInput] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const conversationIdRef = React.useRef<string | null>(null);
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, loading]);
 
+  // Khôi phục hội thoại đã lưu trên Supabase (nếu trình duyệt này đã từng chat trước đó).
+  React.useEffect(() => {
+    const savedId = localStorage.getItem(STORAGE_KEY);
+    if (!savedId) return;
+
+    conversationIdRef.current = savedId;
+    fetch(`/api/chat?conversationId=${encodeURIComponent(savedId)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.messages?.length) {
+          setMessages([...initialMessages, ...data.messages]);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   async function sendMessage(text: string) {
     if (!text.trim() || loading) return;
-    const history = messages;
     setMessages((prev) => [...prev, { from: "user", text }]);
     setInput("");
     setLoading(true);
@@ -43,16 +61,20 @@ export function ChatWidget() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, history }),
+        body: JSON.stringify({ message: text, conversationId: conversationIdRef.current }),
       });
       const data = await res.json();
-      setMessages((prev) => [
-        ...prev,
-        {
-          from: "bot",
-          text: res.ok ? data.reply : (data.error ?? "Có lỗi xảy ra, thử lại sau."),
-        },
-      ]);
+
+      if (res.ok) {
+        conversationIdRef.current = data.conversationId;
+        localStorage.setItem(STORAGE_KEY, data.conversationId);
+        setMessages([...initialMessages, ...data.messages]);
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { from: "bot", text: data.error ?? "Có lỗi xảy ra, thử lại sau." },
+        ]);
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
