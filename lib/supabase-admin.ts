@@ -34,6 +34,54 @@ export interface Database {
         };
         Relationships: [];
       };
+      leads: {
+        Row: {
+          id: string;
+          conversation_id: string;
+          full_name: string | null;
+          email: string | null;
+          phone: string | null;
+          country: string | null;
+          study_level: string | null;
+          major: string | null;
+          availability: string | null;
+          has_booked_consultation: boolean | null;
+          notes: string | null;
+          lead_quality: "good" | "ok" | "spam" | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          conversation_id: string;
+          full_name?: string | null;
+          email?: string | null;
+          phone?: string | null;
+          country?: string | null;
+          study_level?: string | null;
+          major?: string | null;
+          availability?: string | null;
+          has_booked_consultation?: boolean | null;
+          notes?: string | null;
+          lead_quality?: "good" | "ok" | "spam" | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          conversation_id?: string;
+          full_name?: string | null;
+          email?: string | null;
+          phone?: string | null;
+          country?: string | null;
+          study_level?: string | null;
+          major?: string | null;
+          availability?: string | null;
+          has_booked_consultation?: boolean | null;
+          notes?: string | null;
+          lead_quality?: "good" | "ok" | "spam" | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;

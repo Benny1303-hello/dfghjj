@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   MessageSquare,
   School,
+  UserPlus,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -19,6 +20,7 @@ export const adminNavItems: { name: string; href: string; icon: LucideIcon }[] =
   { name: "Trường tham chiếu", href: "/admin/schools", icon: School },
   { name: "Hồ sơ học viên", href: "/admin/profiles", icon: Users },
   { name: "Hội thoại", href: "/admin/conversations", icon: MessageSquare },
+  { name: "Lead tư vấn", href: "/admin/leads", icon: UserPlus },
 ];
 
 function isActive(pathname: string, href: string) {

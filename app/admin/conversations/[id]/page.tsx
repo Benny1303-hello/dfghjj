@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { AdminPageHeader } from "@/components/admin/page-header";
 import { Card } from "@/components/ui/card";
+import { LeadPanel } from "@/components/admin/lead-panel";
 import { cn } from "@/lib/utils";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
@@ -22,13 +23,20 @@ export default async function AdminConversationDetailPage({
   const { id } = await params;
   const supabase = getSupabaseAdmin();
 
-  const [{ data: conversation }, { data: messages, error: msgError }] = await Promise.all([
+  const [{ data: conversation }, { data: messages, error: msgError }, { data: lead }] = await Promise.all([
     supabase.from("chat_conversations").select("id, channel, started_at").eq("id", id).single(),
     supabase
       .from("chat_messages")
       .select("from_role, text, created_at")
       .eq("conversation_id", id)
       .order("created_at", { ascending: true }),
+    supabase
+      .from("leads")
+      .select(
+        "full_name, email, phone, country, study_level, major, availability, has_booked_consultation, notes, lead_quality",
+      )
+      .eq("conversation_id", id)
+      .maybeSingle(),
   ]);
 
   if (!conversation) notFound();
@@ -48,40 +56,44 @@ export default async function AdminConversationDetailPage({
         description={`Bắt đầu lúc ${formatDateTime(conversation.started_at)}`}
       />
 
-      <Card className="max-w-2xl space-y-3 p-6">
-        {msgError && (
-          <p className="text-center text-sm text-muted-foreground">
-            Không tải được tin nhắn, thử lại sau.
-          </p>
-        )}
-        {!msgError && (messages ?? []).length === 0 && (
-          <p className="text-center text-sm text-muted-foreground">
-            Hội thoại này chưa có tin nhắn nào.
-          </p>
-        )}
-        {(messages ?? []).map((m, i) => (
-          <div key={i} className={cn("flex", m.from_role === "user" ? "justify-end" : "justify-start")}>
-            <div
-              className={cn(
-                "max-w-[80%] space-y-1 rounded-2xl px-3.5 py-2 text-sm",
-                m.from_role === "user"
-                  ? "rounded-br-sm bg-primary text-primary-foreground"
-                  : "rounded-bl-sm bg-muted text-foreground",
-              )}
-            >
-              <p>{m.text}</p>
-              <p
+      <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
+        <Card className="space-y-3 p-6">
+          {msgError && (
+            <p className="text-center text-sm text-muted-foreground">
+              Không tải được tin nhắn, thử lại sau.
+            </p>
+          )}
+          {!msgError && (messages ?? []).length === 0 && (
+            <p className="text-center text-sm text-muted-foreground">
+              Hội thoại này chưa có tin nhắn nào.
+            </p>
+          )}
+          {(messages ?? []).map((m, i) => (
+            <div key={i} className={cn("flex", m.from_role === "user" ? "justify-end" : "justify-start")}>
+              <div
                 className={cn(
-                  "text-[0.7rem]",
-                  m.from_role === "user" ? "text-primary-foreground/70" : "text-muted-foreground",
+                  "max-w-[80%] space-y-1 rounded-2xl px-3.5 py-2 text-sm",
+                  m.from_role === "user"
+                    ? "rounded-br-sm bg-primary text-primary-foreground"
+                    : "rounded-bl-sm bg-muted text-foreground",
                 )}
               >
-                {formatDateTime(m.created_at)}
-              </p>
+                <p>{m.text}</p>
+                <p
+                  className={cn(
+                    "text-[0.7rem]",
+                    m.from_role === "user" ? "text-primary-foreground/70" : "text-muted-foreground",
+                  )}
+                >
+                  {formatDateTime(m.created_at)}
+                </p>
+              </div>
             </div>
-          </div>
-        ))}
-      </Card>
+          ))}
+        </Card>
+
+        <LeadPanel conversationId={id} initialLead={lead ?? null} />
+      </div>
     </>
   );
 }

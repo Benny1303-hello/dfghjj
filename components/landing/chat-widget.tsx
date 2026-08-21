@@ -4,21 +4,18 @@ import React from "react";
 import { Loader2, MessageCircle, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { countries } from "@/lib/mock-data";
 
 interface Message {
   from: "bot" | "user";
   text: string;
 }
 
-const quickQuestions = [
-  "Dịch vụ này gồm những gì?",
-  "Mất bao lâu để có kết quả?",
-  "Chi phí dịch vụ là bao nhiêu?",
-  "Cần chuẩn bị giấy tờ gì?",
-];
-
 const initialMessages: Message[] = [
-  { from: "bot", text: "Chào bạn! Mình là trợ lý ảo của DuHoc24, bạn cần hỗ trợ gì về hồ sơ du học?" },
+  {
+    from: "bot",
+    text: "Chào bạn! Mình là trợ lý tư vấn du học của DuHoc24 😊 Bạn đang quan tâm du học ở quốc gia nào, hay đang phân vân giữa vài nước?",
+  },
 ];
 
 const STORAGE_KEY = "duhoc24_chat_conversation_id";
@@ -91,8 +88,8 @@ export function ChatWidget() {
         <div className="mb-3 flex h-[28rem] w-80 flex-col overflow-hidden rounded-2xl border bg-card shadow-xl shadow-black/10 ring-1 ring-foreground/6.5 sm:w-96">
           <div className="flex items-center justify-between border-b bg-primary px-4 py-3 text-primary-foreground">
             <div>
-              <p className="text-sm font-medium">Hỏi đáp nhanh</p>
-              <p className="text-xs opacity-80">Thường trả lời trong vài phút</p>
+              <p className="text-sm font-medium">Tư vấn du học</p>
+              <p className="text-xs opacity-80">Trợ lý ảo luôn sẵn sàng hỗ trợ</p>
             </div>
             <button
               onClick={() => setOpen(false)}
@@ -132,18 +129,20 @@ export function ChatWidget() {
           </div>
 
           <div className="border-t p-3">
-            <div className="flex flex-wrap gap-1.5 pb-2">
-              {quickQuestions.map((q) => (
-                <button
-                  key={q}
-                  onClick={() => sendMessage(q)}
-                  disabled={loading}
-                  className="rounded-full border px-2.5 py-1 text-xs text-muted-foreground duration-150 hover:border-primary hover:text-primary disabled:pointer-events-none disabled:opacity-50"
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
+            {messages.length <= 1 && (
+              <div className="flex flex-wrap gap-1.5 pb-2">
+                {countries.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => sendMessage(c)}
+                    disabled={loading}
+                    className="rounded-full border px-2.5 py-1 text-xs text-muted-foreground duration-150 hover:border-primary hover:text-primary disabled:pointer-events-none disabled:opacity-50"
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            )}
             <form
               onSubmit={(e) => {
                 e.preventDefault();

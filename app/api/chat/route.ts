@@ -1,4 +1,4 @@
-import { buildChatSystemInstruction } from "@/lib/chat-qna";
+import { buildChatSystemInstruction, SAVE_LEAD_FUNCTION_DECLARATION } from "@/lib/chat-persona";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 const GEMINI_MODEL = "gemini-flash-lite-latest";
@@ -7,6 +7,22 @@ const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GE
 interface ChatRow {
   from_role: "bot" | "user";
   text: string;
+}
+
+interface LeadArgs {
+  full_name: string;
+  email: string;
+  phone: string;
+  country?: string;
+  study_level?: string;
+  major?: string;
+  notes?: string;
+}
+
+interface GeminiPart {
+  text?: string;
+  functionCall?: { name: string; args: Record<string, unknown> };
+  thoughtSignature?: string;
 }
 
 async function fetchMessages(conversationId: string): Promise<ChatRow[]> {
@@ -20,7 +36,73 @@ async function fetchMessages(conversationId: string): Promise<ChatRow[]> {
   return data as ChatRow[];
 }
 
-async function callGemini(history: ChatRow[], message: string) {
+async function callGeminiRaw(body: unknown) {
+  const response = await fetch(GEMINI_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-goog-api-key": process.env.GEMINI_API_KEY!,
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok) {
+    console.error("[gemini] HTTP", response.status, await response.text());
+    throw new Error("gemini_error");
+  }
+  return response.json();
+}
+
+function extractParts(data: { candidates?: { content?: { parts?: GeminiPart[] } }[] }): GeminiPart[] {
+  return data?.candidates?.[0]?.content?.parts ?? [];
+}
+
+function extractText(parts: GeminiPart[]): string {
+  return parts.map((p) => p.text ?? "").join("");
+}
+
+function parseLead(args: Record<string, unknown>): LeadArgs | undefined {
+  if (
+    typeof args.full_name !== "string" ||
+    !args.full_name.trim() ||
+    typeof args.email !== "string" ||
+    !args.email.trim() ||
+    typeof args.phone !== "string" ||
+    !args.phone.trim()
+  ) {
+    return undefined;
+  }
+
+  const asString = (v: unknown) => (typeof v === "string" && v.trim() ? v : undefined);
+  return {
+    full_name: args.full_name,
+    email: args.email,
+    phone: args.phone,
+    country: asString(args.country),
+    study_level: asString(args.study_level),
+    major: asString(args.major),
+    notes: asString(args.notes),
+  };
+}
+
+const onlyDigits = (s: string) => s.replace(/\D/g, "");
+
+// Chống model tự bịa email/số điện thoại: chỉ chấp nhận lead nếu email/SĐT
+// thực sự xuất hiện trong những gì người dùng đã tự gõ trong hội thoại.
+function isLeadGrounded(lead: LeadArgs, history: ChatRow[], currentMessage: string): boolean {
+  const userText = [
+    ...history.filter((h) => h.from_role === "user").map((h) => h.text),
+    currentMessage,
+  ].join(" \n ");
+
+  const emailOk = userText.toLowerCase().includes(lead.email.trim().toLowerCase());
+  const phoneDigits = onlyDigits(lead.phone);
+  const phoneOk = phoneDigits.length >= 8 && onlyDigits(userText).includes(phoneDigits);
+
+  return emailOk && phoneOk;
+}
+
+async function runChat(history: ChatRow[], message: string): Promise<{ reply: string; lead?: LeadArgs }> {
   const contents = [
     ...history.map((turn) => ({
       role: turn.from_role === "user" ? "user" : "model",
@@ -29,28 +111,51 @@ async function callGemini(history: ChatRow[], message: string) {
     { role: "user", parts: [{ text: message }] },
   ];
 
-  const response = await fetch(GEMINI_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-goog-api-key": process.env.GEMINI_API_KEY!,
+  const baseBody = {
+    systemInstruction: { parts: [{ text: buildChatSystemInstruction() }] },
+    tools: [{ functionDeclarations: [SAVE_LEAD_FUNCTION_DECLARATION] }],
+    generationConfig: { temperature: 0.4 },
+  };
+
+  const first = await callGeminiRaw({ ...baseBody, contents });
+  const parts = extractParts(first);
+  const functionCallPart = parts.find((p) => p.functionCall);
+
+  if (!functionCallPart?.functionCall) {
+    const reply = extractText(parts);
+    if (!reply) {
+      console.error("[gemini] empty reply, parts:", JSON.stringify(parts));
+      throw new Error("gemini_empty_reply");
+    }
+    return { reply };
+  }
+  const parsedLead = parseLead(functionCallPart.functionCall.args);
+  const lead = parsedLead && isLeadGrounded(parsedLead, history, message) ? parsedLead : undefined;
+
+  const followupContents = [
+    ...contents,
+    // Giữ nguyên part gốc (gồm cả thoughtSignature) — Gemini API bắt buộc phải có
+    // thoughtSignature khi gửi lại lượt functionCall của model, thiếu sẽ bị 400.
+    { role: "model", parts: [functionCallPart] },
+    {
+      // Gemini API không nhận role "function" cho lượt phản hồi function call — phải dùng "user".
+      role: "user",
+      parts: [
+        {
+          functionResponse: {
+            name: "save_lead",
+            response: { success: Boolean(lead) },
+          },
+        },
+      ],
     },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: buildChatSystemInstruction() }] },
-      contents,
-      generationConfig: { temperature: 0.2 },
-    }),
-  });
+  ];
 
-  if (!response.ok) throw new Error("gemini_error");
-
-  const data = await response.json();
-  const reply: string | undefined = data?.candidates?.[0]?.content?.parts
-    ?.map((p: { text?: string }) => p.text ?? "")
-    .join("");
-
+  const second = await callGeminiRaw({ ...baseBody, contents: followupContents });
+  const reply = extractText(extractParts(second));
   if (!reply) throw new Error("gemini_empty_reply");
-  return reply;
+
+  return { reply, lead };
 }
 
 // GET /api/chat?conversationId=... — nạp lại lịch sử hội thoại từ Supabase để hiển thị.
@@ -106,13 +211,30 @@ export async function POST(request: Request) {
       history = [];
     }
 
-    const reply = await callGemini(history, message);
+    const { reply, lead } = await runChat(history, message);
 
     const { error: insertError } = await supabase.from("chat_messages").insert([
       { conversation_id: convId, from_role: "user", text: message },
       { conversation_id: convId, from_role: "bot", text: reply },
     ]);
     if (insertError) throw insertError;
+
+    if (lead) {
+      const { error: leadError } = await supabase.from("leads").upsert(
+        {
+          conversation_id: convId,
+          full_name: lead.full_name,
+          email: lead.email,
+          phone: lead.phone,
+          country: lead.country ?? null,
+          study_level: lead.study_level ?? null,
+          major: lead.major ?? null,
+          notes: lead.notes ?? null,
+        },
+        { onConflict: "conversation_id" },
+      );
+      if (leadError) throw leadError;
+    }
 
     const messages = [
       ...history.map((r) => ({ from: r.from_role, text: r.text })),
